@@ -1,0 +1,5 @@
+google-genai
+pdf2image
+openpyxl
+pillow
+python-dotenv
