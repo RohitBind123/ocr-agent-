@@ -4,14 +4,52 @@ An async AI pipeline that extracts structured clinical data (patient name, TID, 
 
 ## What it does
 
-| Script | What it produces |
-|---|---|
-| `extract.py` | Batch-extracts all prescriptions → `RGHS_OPD_june_v3.xlsx` |
-| `react_retry.py` | Re-reads "not legible" fields using a ReAct loop → `v4_react.xlsx` |
-| `judge.py` | AI clinical judge: compares AI output vs human reference → `judge_report.xlsx` |
-| `compare.py` | TID-matched diff of extracted vs reference → `comparison_report.xlsx` |
-| `compare3.py` | Side-by-side 3-way diff (Reference / V2 / V3) → `comparison_3way.xlsx` |
-| `merge_final.py` | Merges V3 with human reference as fallback → `RGHS_OPD_june_FINAL.xlsx` |
+Each root script is a thin entry point that delegates to a module under `src/`.
+
+| Entry point | Module | What it produces |
+|---|---|---|
+| `extract.py` | `src/agents/extractor.py` | Batch-extracts all prescriptions → `RGHS_OPD_june_v3.xlsx` |
+| `react_retry.py` | `src/agents/react_agent.py` | Re-reads "not legible" fields using a ReAct loop → `v4_react.xlsx` |
+| `judge.py` | `src/analysis/judge.py` | AI clinical judge: AI output vs human reference → `judge_report.xlsx` |
+| `compare.py` | `src/analysis/compare.py` | TID-matched diff of extracted vs reference → `comparison_report.xlsx` |
+| `compare3.py` | `src/analysis/compare3.py` | Side-by-side 3-way diff (Reference / V2 / V3) → `comparison_3way.xlsx` |
+| `merge_final.py` | `src/analysis/merger.py` | Merges V3 with human reference fallback → `RGHS_OPD_june_FINAL.xlsx` |
+
+## Project structure
+
+```
+rghs_extractor/
+├── extract.py            # thin entry points (run these)
+├── react_retry.py
+├── judge.py
+├── compare.py
+├── compare3.py
+├── merge_final.py
+├── src/
+│   ├── config.py         # all credentials + paths, loaded from .env
+│   ├── agents/           # the AI extraction agents
+│   │   ├── extractor.py        # parallel one-shot extraction
+│   │   └── react_agent.py      # ReAct image-investigation retry
+│   ├── analysis/         # evaluation / reporting (no AI, except judge)
+│   │   ├── judge.py
+│   │   ├── compare.py
+│   │   ├── compare3.py
+│   │   └── merger.py
+│   ├── prompts/          # all LLM prompts, one file per agent
+│   │   ├── extraction.py
+│   │   ├── react.py
+│   │   └── judge.py
+│   └── utils/            # shared helpers
+│       ├── parsing.py          # JSON-from-LLM-response parser
+│       ├── excel.py            # OPD workbook writer + style constants
+│       └── image_tools.py      # crop / enhance / blue-ink isolation
+├── requirements.txt
+├── .env.example          # copy to .env and fill in
+└── output/               # generated Excel files (gitignored — contains PHI)
+```
+
+All modules use absolute imports rooted at `src` (e.g. `from src.config import GEMINI_API_KEY`),
+so always run the entry points from the project root.
 
 ## Setup
 

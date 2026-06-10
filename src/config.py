@@ -1,6 +1,6 @@
 """
-Central configuration — all credentials and paths loaded from .env.
-Scripts import from here instead of hardcoding values.
+Central config — every credential and path loaded once from .env.
+All src modules import from here; nothing is hardcoded elsewhere.
 """
 import os
 from pathlib import Path
