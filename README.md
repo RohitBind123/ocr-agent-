@@ -53,22 +53,60 @@ so always run the entry points from the project root.
 
 ## Setup
 
-### 1. Install dependencies
+> Requires **Python 3.10+**. Run every command from the project root (`rghs_extractor/`).
 
-```bash
-pip install -r requirements.txt
-```
+### 1. Install the `poppler` system dependency
 
-`poppler` is also required for `pdf2image`. On macOS:
+`pdf2image` shells out to poppler to rasterize PDFs.
 
+**macOS** (Homebrew):
 ```bash
 brew install poppler
 ```
 
-### 2. Configure credentials and paths
+**Windows**:
+1. Download the latest build from https://github.com/oschwartz10612/poppler-windows/releases
+2. Unzip it (e.g. to `C:\poppler`)
+3. Add the `...\poppler\Library\bin` folder to your **PATH** environment variable
+4. Open a new terminal so the PATH change takes effect
 
+(Alternatively, on either OS with conda: `conda install -c conda-forge poppler`.)
+
+### 2. Create a virtual environment and install Python deps
+
+**macOS / Linux**:
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+**Windows (PowerShell)**:
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+
+**Windows (Command Prompt)**:
+```cmd
+python -m venv .venv
+.venv\Scripts\activate.bat
+pip install -r requirements.txt
+```
+
+### 3. Configure credentials and paths
+
+Copy the template, then edit `.env`:
+
+**macOS / Linux**:
 ```bash
 cp .env.example .env
+```
+
+**Windows**:
+```cmd
+copy .env.example .env
 ```
 
 Open `.env` and fill in your values:
@@ -82,30 +120,43 @@ REF_FILE=/path/to/human-verified-reference.xlsx
 
 - **GEMINI_API_KEY** — get one at https://aistudio.google.com/app/apikey
 - **PDF_DIR** — folder where the `* - P.pdf` prescription files live
+  (Windows example: `PDF_DIR=C:\Users\you\Downloads\RGHS OPD june` — no quotes needed)
 - **OUTPUT_DIR** — where generated Excel files are written (default: `./output`)
 - **REF_FILE** — the doctor-verified reference Excel (columns: Name, TID, Complaint, Diagnosis)
 
-### 3. Run the pipeline
+### 4. Run the pipeline
 
-Run scripts in order for a full pipeline run:
+The commands are identical on every OS — only the `python` executable name differs
+(`python3` on macOS/Linux, `python` on Windows). Run them in order:
 
+**macOS / Linux**:
 ```bash
-# Step 1 — extract all prescriptions (parallel, ~5 concurrent Gemini calls)
+python3 extract.py        # Step 1 — extract all prescriptions (~5 concurrent Gemini calls)
+python3 react_retry.py    # Step 2 (optional) — ReAct retry on "not legible" fields
+python3 merge_final.py    # Step 3 — merge AI output with human-reference fallback
+
+# Evaluation (run any time after extract.py)
+python3 judge.py          # AI-vs-human clinical equivalence scoring
+python3 compare.py        # TID-matched diff report
+python3 compare3.py       # 3-way comparison (REF / V2 / V3)
+```
+
+**Windows**:
+```powershell
 python extract.py
-
-# Step 2 (optional) — retry "not legible" fields with a ReAct image-investigation loop
 python react_retry.py
-
-# Step 3 — merge AI output with human reference as fallback for still-illegible rows
 python merge_final.py
 
-# Evaluation scripts (run any time after extract.py)
-python judge.py          # AI-vs-human clinical equivalence scoring
-python compare.py        # TID-matched diff report
-python compare3.py       # 3-way comparison (REF / V2 / V3)
+python judge.py
+python compare.py
+python compare3.py
 ```
 
 All output files are written to `OUTPUT_DIR` (default `./output/`).
+
+> **Alternative — run as modules.** Since the logic lives in `src/`, you can also run
+> any stage with `python -m`, e.g. `python -m src.agents.extractor` or
+> `python -m src.analysis.compare`. The thin root scripts above are just shortcuts.
 
 ## Pipeline overview
 
