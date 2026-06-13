@@ -1,6 +1,9 @@
 # RGHS OPD OCR Agent
 
-An async AI pipeline that extracts structured clinical data (patient name, TID, complaint, diagnosis) from handwritten Rajasthan Government Health Scheme (RGHS) OPD prescription PDFs using Gemini 2.5 Flash.
+An async AI pipeline that extracts structured clinical data from handwritten Rajasthan Government Health Scheme (RGHS) OPD records using Google Gemini. It supports two modes:
+
+1. **Case bake-off pipeline** (current focus) — folder-per-patient cases (Prescription + Bill + Diagnosis/Investigation reports) extracted into the 5-column ground-truth format, with a multi-model accuracy bake-off scored by an LLM clinical judge. See [Case bake-off pipeline](#case-bake-off-pipeline).
+2. **Flat-file pipeline** (original) — a single folder of `* - P.pdf` prescriptions extracted into a 4-column sheet.
 
 ## What it does
 
@@ -8,6 +11,7 @@ Each root script is a thin entry point that delegates to a module under `src/`.
 
 | Entry point | Module | What it produces |
 |---|---|---|
+| `bakeoff.py` | `src/analysis/bakeoff.py` | **Runs every candidate model on every case, judges each vs ground truth, ranks them → `extracted_<model>.xlsx` + `bakeoff_report.xlsx`** |
 | `extract.py` | `src/agents/extractor.py` | Batch-extracts all prescriptions → `RGHS_OPD_june_v3.xlsx` |
 | `react_retry.py` | `src/agents/react_agent.py` | Re-reads "not legible" fields using a ReAct loop → `v4_react.xlsx` |
 | `judge.py` | `src/analysis/judge.py` | AI clinical judge: AI output vs human reference → `judge_report.xlsx` |
@@ -50,6 +54,72 @@ rghs_extractor/
 
 All modules use absolute imports rooted at `src` (e.g. `from src.config import GEMINI_API_KEY`),
 so always run the entry points from the project root.
+
+## Case bake-off pipeline
+
+The case pipeline works on **one folder per patient**. Each folder is named `<TID> <NAME>`
+and contains some subset of:
+
+| File | Meaning | Presence | Role in extraction |
+|---|---|---|---|
+| `P.pdf` | Prescription (handwritten RGHS OPD form) | always | **Primary** source for all 5 fields |
+| `B.pdf` | Bill of supply (printed) | always | Cross-checks patient name, consultant, TID (in "Remarks") |
+| `D.pdf` | Diagnosis report (imaging / lab) | optional | Confirms the spelling of the diagnosis only |
+| `I.pdf` | Investigation report (lab values) | optional | Not fed to the model (no target field comes from it) |
+
+It extracts the **5 ground-truth columns**: `Patient name`, `Consultant Name`, `Complain`,
+`Diagnosis`, `Duration`.
+
+### Field sources (where each column comes from on the form)
+
+- **Patient name / TID** — prescription header + the printed bill (bill spelling wins).
+- **Consultant Name** — prescription "Treating Doctor Name" + doctor's stamp, confirmed by the bill's "Consultant".
+- **Complain** — the prescription "Chief Complaints:" section only (concise primary complaint + duration).
+- **Diagnosis** — the prescription provisional-diagnosis box / top free space + major chronic comorbidities. The D-report only confirms spelling; it never replaces the OPD diagnosis with radiology findings.
+- **Duration** — the prescription "Review Date / After Day(s):" follow-up interval (e.g. `1 month`, `15 Days`, `30 Days`).
+
+### How accuracy is measured
+
+The output is intentionally a **concise one-line case-sheet summary** that mirrors the human
+ground truth — not a verbatim transcription. Accuracy is scored **contextually** (not
+word-by-word) by an LLM clinical judge (`src/analysis/accuracy_judge.py`): each field is graded
+`correct` (1.0) / `partial` (0.5) / `wrong` (0.0) by clinical equivalence — paraphrase, expanded
+abbreviations, and equivalent units (`1 month` == `30 days`) all count as correct. A deterministic
+string-similarity is reported alongside as a secondary signal.
+
+### Running the bake-off
+
+```bash
+python3 bakeoff.py
+```
+
+This extracts every case with each model in `BAKEOFF_MODELS` (config), judges each against the
+ground truth with `JUDGE_MODEL`, then writes:
+
+- `output/extracted_<model>.xlsx` — one model's output in the 5-column ground-truth format
+- `output/bakeoff_report.xlsx` — a `Summary` sheet ranking models by overall + per-field accuracy, plus one detail sheet per model (ground truth vs extracted, verdict, score, reason)
+
+The console prints a ranked table and names the winning model.
+
+### New modules
+
+```
+src/utils/case_discovery.py      # find <TID> <NAME> folders, identify P/B/I/D, rasterize pages
+src/utils/llm.py                 # async Gemini call with retry + exponential backoff
+src/prompts/case_extraction.py   # XML-structured 5-field extraction prompt
+src/agents/case_extractor.py     # model-parameterized multi-document extractor
+src/analysis/ground_truth.py     # load Diagnosis.xlsx + match each case folder to its row
+src/prompts/accuracy_judge.py    # XML-structured clinical accuracy judge prompt
+src/analysis/accuracy_judge.py   # LLM judge + deterministic similarity + aggregation
+src/utils/excel_report.py        # 5-column output + multi-sheet bake-off report
+src/analysis/bakeoff.py          # orchestrator: extract -> judge -> rank
+```
+
+Unit tests for the deterministic core (folder parsing, GT matching, scoring) live in `tests/`:
+
+```bash
+python3 -m pytest tests/ -q
+```
 
 ## Setup
 

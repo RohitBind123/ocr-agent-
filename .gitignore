@@ -4,6 +4,10 @@
 # Output — contains patient data (PHI)
 output/
 
+# Test cases + ground truth — contains patient data (PHI)
+RGHS test/
+RGHS_test/
+
 # Python
 __pycache__/
 *.pyc
